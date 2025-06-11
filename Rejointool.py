@@ -10,6 +10,7 @@ import win32event
 import win32api
 import winerror
 from threading import Thread
+from colorama import init, Fore, Style
 
 CONFIG_FILE = "rejoin_config.json"
 
@@ -30,6 +31,12 @@ def save_config(cfg):
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
 config = load_config()
+
+# initialize colored output
+init(autoreset=True)
+
+def clear_screen():
+    os.system('cls' if os.name == 'nt' else 'clear')
 
 def enable_multi_roblox():
     try:
@@ -151,92 +158,125 @@ def worker(account):
                 launch_roblox(ticket, account['PlaceId'], account['name'], account.get("PrivatSr"))
         time.sleep(config['CHECK_INTERVAL'])
 
+def show_main_menu():
+    clear_screen()
+    print(Fore.GREEN + "==== Меню ====")
+    print("1. Запуск Rejoin Tool")
+    print("2. Добавить аккаунт")
+    print("3. Посмотреть аккаунты")
+    print("4. Настройки")
+    print("5. Выход")
+
+
+def start_rejoin_tool():
+    clear_screen()
+    print(Fore.YELLOW + "Запуск Rejoin Tool...")
+    for acc in config['accounts']:
+        Thread(target=worker, args=(acc,), daemon=True).start()
+    input("Нажмите Enter для возврата в меню...")
+
+
+def add_account_page():
+    clear_screen()
+    print(Fore.YELLOW + "=== Добавить аккаунт ===")
+    cookie = input("Введите .ROBLOSECURITY: ").strip()
+    place_id = input("Введите placeId: ").strip()
+    private = input("(Необязательно) Вставьте ссылку на приват сервер: ").strip()
+
+    session = requests.Session()
+    session.cookies['.ROBLOSECURITY'] = cookie
+    session.headers.update({"Content-Type": "application/json"})
+    session.headers['X-CSRF-TOKEN'] = get_csrf_token(session)
+    user = get_user(session)
+
+    try:
+        game_info = requests.get(f"https://games.roblox.com/v1/games?universeIds={user['id']}")
+        data = game_info.json().get("data", [])
+        if data:
+            config.setdefault("games", {})[place_id] = data[0]["name"]
+    except:
+        pass
+
+    if not user:
+        print("[!] Ошибка получения пользователя")
+        input("Нажмите Enter чтобы вернуться...")
+        return
+
+    new_acc = {
+            "id": user["id"],
+            "name": user["name"],
+            "displayName": user["displayName"],
+            "Cookie": cookie,
+            "PlaceId": place_id,
+            "UniverseId": get_universe_id_from_place(place_id),
+            "PrivatSr": convert_share_link_to_legacy(private, place_id) if private else None
+            }
+
+    config['accounts'].append(new_acc)
+    save_config(config)
+    print(f"[+] Аккаунт {user['name']} добавлен.")
+    input("Нажмите Enter для возврата в меню...")
+
+
+def show_accounts_page():
+    clear_screen()
+    print(Fore.CYAN + "==== Аккаунты ====")
+    for i, acc in enumerate(config['accounts'], 1):
+        name = acc['name']
+        uid = acc['id']
+        place = acc['PlaceId']
+        game_name = config.get("games", {}).get(str(place), "❓ Unknown Game")
+        private = acc.get("PrivatSr")
+        private_mark = "✅" if private else "❌"
+
+        print(f"{i}. {name}")
+        print(f"   ID: {uid}")
+        print(f"   PlaceId: {place}")
+        print(f"   Name: {game_name}")
+        print(f"   P.S: {private_mark}")
+        print("--------------------")
+
+    input("Нажмите Enter для возврата в меню...")
+
+
+def settings_page():
+    clear_screen()
+    print(Fore.MAGENTA + "==== Настройки ====")
+    try:
+        interval = int(input(f"Интервал проверки (текущий: {config['CHECK_INTERVAL']}): "))
+        title = input(f"Кастомный префикс (текущий: {config['CUSTOM_TITLE']}): ")
+        config['CHECK_INTERVAL'] = interval
+        config['CUSTOM_TITLE'] = title
+        save_config(config)
+        print("[✓] Настройки сохранены")
+    except:
+        print("[!] Ошибка ввода")
+    input("Нажмите Enter для возврата в меню...")
+
+
 def terminal():
     while True:
-        print("\nМеню:")
-        print("1. Запуск Rejoin Tool")
-        print("2. Добавить аккаунт")
-        print("3. Посмотреть аккаунты")
-        print("4. Настройки")
-        print("5. Выход")
+        show_main_menu()
         choice = input("Выбор: ").strip()
 
         if choice == "1":
-            for acc in config['accounts']:
-                Thread(target=worker, args=(acc,), daemon=True).start()
+            start_rejoin_tool()
 
         elif choice == "2":
-            cookie = input("Введите .ROBLOSECURITY: ").strip()
-            place_id = input("Введите placeId: ").strip()
-            private = input("(Необязательно) Вставьте ссылку на приват сервер: ").strip()
-
-            session = requests.Session()
-            session.cookies['.ROBLOSECURITY'] = cookie
-            session.headers.update({"Content-Type": "application/json"})
-            session.headers['X-CSRF-TOKEN'] = get_csrf_token(session)
-            user = get_user(session)
-
-            try:
-                game_info = requests.get(f"https://games.roblox.com/v1/games?universeIds={user['id']}")
-                data = game_info.json().get("data", [])
-                if data:
-                    config.setdefault("games", {})[place_id] = data[0]["name"]
-            except:
-                pass
-
-            if not user:
-                print("[!] Ошибка получения пользователя")
-                continue
-
-            new_acc = {
-                    "id": user["id"],
-                    "name": user["name"],
-                    "displayName": user["displayName"],
-                    "Cookie": cookie,
-                    "PlaceId": place_id,
-                    "UniverseId": get_universe_id_from_place(place_id),
-                    "PrivatSr": convert_share_link_to_legacy(private, place_id) if private else None
-                    }
-            
-            config['accounts'].append(new_acc)
-            save_config(config)
-            print(f"[+] Аккаунт {user['name']} добавлен.")
+            add_account_page()
 
         elif choice == "3":
-            print("==== Аккаунты ====")
-            for i, acc in enumerate(config['accounts'], 1):
-                name = acc['name']
-                uid = acc['id']
-                place = acc['PlaceId']
-                game_name = config.get("games", {}).get(str(place), "❓ Unknown Game")
-                private = acc.get("PrivatSr")
-                private_mark = "✅" if private else "❌"
-
-                print(f"{i}. {name}")
-                print(f"| ID: {uid}")
-                print(f"| PlaceId: {place}")
-                print(f"| Name: {game_name}")
-                print(f"| P.S: {private_mark}")
-                print("--------------------")
-
+            show_accounts_page()
 
         elif choice == "4":
-            try:
-                interval = int(input(f"Интервал проверки (текущий: {config['CHECK_INTERVAL']}): "))
-                title = input(f"Кастомный префикс (текущий: {config['CUSTOM_TITLE']}): ")
-                config['CHECK_INTERVAL'] = interval
-                config['CUSTOM_TITLE'] = title
-                save_config(config)
-                print("[✓] Настройки сохранены")
-            except:
-                print("[!] Ошибка ввода")
+            settings_page()
 
         elif choice == "5":
             print("Выход...")
             os._exit(0)
 
         else:
-            print("Неверный выбор.")
+            input("Неверный выбор. Нажмите Enter, чтобы продолжить...")
 
 if __name__ == "__main__":
     enable_multi_roblox()
